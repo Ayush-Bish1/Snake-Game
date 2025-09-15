@@ -1,125 +1,140 @@
 #include <SDL2/SDL.h>
 #include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
 
-//variables
-
-bool running = true;
-SDL_Window * window = nullptr;
-SDL_Renderer * renderer = nullptr;
-int screen_x = 800;
-int screen_y = 600;
-int minX = 0;
-int minY = 0;
-SDL_Event e;
+const int SCREEN_X = 800;
+const int SCREEN_Y = 600;
 const int CELL_SIZE = 20;
-int dx = 0;
+
+SDL_Window* window = nullptr;
+SDL_Renderer* renderer = nullptr;
+SDL_Event e;
+bool running = true;
+
+// direction: one cell per tick
+int dx = CELL_SIZE;
 int dy = 0;
-SDL_Rect myrect = {400, 300, 20, 20};
-SDL_Rect myfood = {0, 0, 15 , 15};
+
+struct Cell {
+    int x;
+    int y;
+};
+
+// snake body (each cell is one segment)
+std::vector<Cell> snake;
+
+// food
+Cell food;
 
 void spawn_food() {
-    myfood.x = (rand() % (800 / 20)) * 20;  // keeps it on grid
-    myfood.y = (rand() % (600 / 20)) * 20;
+    food.x = (rand() % (SCREEN_X / CELL_SIZE)) * CELL_SIZE;
+    food.y = (rand() % (SCREEN_Y / CELL_SIZE)) * CELL_SIZE;
 }
 
-//food function
-
-void food_func(){
-
-    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
-    SDL_RenderDrawRect(renderer, &myfood);
-    SDL_RenderFillRect(renderer, &myfood);
+void handle_input() {
+    if (e.type == SDL_KEYDOWN) {
+        switch (e.key.keysym.sym) {
+        case SDLK_w: dy = -CELL_SIZE; dx = 0; break;
+        case SDLK_s: dy = CELL_SIZE; dx = 0; break;
+        case SDLK_a: dx = -CELL_SIZE; dy = 0; break;
+        case SDLK_d: dx = CELL_SIZE; dy = 0; break;
+        case SDLK_ESCAPE: running = false; break;
+        }
+    }
 }
 
-void snake(){
+void update_snake() {
+    // new head
+    Cell newHead = { snake.front().x + dx, snake.front().y + dy };
 
-    myrect.x += 0;
-    myrect.y += 0;
-    //snake blob
-    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
-    SDL_RenderDrawRect(renderer, &myrect);
-    SDL_RenderFillRect(renderer, &myrect);
-
-}
-
-void gameover(){
-
-}
-
-void input(){
-    if(e.type == SDL_KEYDOWN){
-        switch (e.key.keysym.sym)
-        {
-        case SDLK_w:
-            dy = -CELL_SIZE; dx = 0;
-            break;
-        case SDLK_s:
-            dy = CELL_SIZE; dx = 0;
-            break;
-        case SDLK_d:
-            dx = CELL_SIZE; dy = 0;
-            break;
-        case SDLK_a:
-            dx = -CELL_SIZE; dy = 0;
-            break;
-        case SDLK_ESCAPE:
+    // check wall collision
+    if (newHead.x < 0 || newHead.x >= SCREEN_X ||
+        newHead.y < 0 || newHead.y >= SCREEN_Y) {
+        running = false; // game over
+        return;
+    }
+    // check self collision
+    for (const auto& c : snake) {
+        if (newHead.x == c.x && newHead.y == c.y) {
             running = false;
-        
-        default:
-            break;
+            return;
         }
     }
 
+    // add head
+    snake.insert(snake.begin(), newHead);
+
+    // check food
+    if (newHead.x == food.x && newHead.y == food.y) {
+        spawn_food(); // grow snake (don’t pop tail)
+    } else {
+        // remove tail
+        snake.pop_back();
+    }
 }
 
+void draw() {
+    // background
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
 
-int main () {
+    // draw food
+    SDL_Rect foodRect = { food.x, food.y, CELL_SIZE, CELL_SIZE };
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &foodRect);
+
+    // draw snake
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+    for (const auto& c : snake) {
+        SDL_Rect r = { c.x, c.y, CELL_SIZE, CELL_SIZE };
+        SDL_RenderFillRect(renderer, &r);
+    }
+
+    SDL_RenderPresent(renderer);
+}
+
+int main() {
+    srand(static_cast<unsigned>(time(nullptr)));
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        std::cout << "Error: SDl Not found" << SDL_GetError() << std::endl;
+        std::cout << "SDL init error: " << SDL_GetError() << std::endl;
         return 1;
     }
 
-    window = SDL_CreateWindow("Snake_Game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED ,screen_x , screen_y,  SDL_WINDOW_SHOWN);
+    window = SDL_CreateWindow("Snake", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        SCREEN_X, SCREEN_Y, SDL_WINDOW_SHOWN);
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
+    // start snake with 3 cells
+    snake.push_back({ SCREEN_X / 2, SCREEN_Y / 2 });
+    snake.push_back({ SCREEN_X / 2 - CELL_SIZE, SCREEN_Y / 2 });
+    snake.push_back({ SCREEN_X / 2 - 2 * CELL_SIZE, SCREEN_Y / 2 });
 
+    spawn_food();
 
-
-    //keeping the screen going
-
+    Uint32 lastMove = 0;
+    const int moveDelay = 150; // ms per step
 
     while (running) {
         while (SDL_PollEvent(&e)) {
-            switch (e.type)
-            {
-            case SDL_QUIT:
-                running = false;
-                break;
-            }
-            input();
+            if (e.type == SDL_QUIT) running = false;
+            handle_input();
         }
 
-
-        Uint32 lastMove = 0;
-        int moveDelay = 150; // ms per step (speed)
-
-        // inside game loop
-            if (SDL_GetTicks() - lastMove > moveDelay) {
-                myrect.x += dx;
-                myrect.y += dy;
-                lastMove = SDL_GetTicks();
+        // move only every moveDelay ms
+        if (SDL_GetTicks() - lastMove > moveDelay) {
+            update_snake();
+            lastMove = SDL_GetTicks();
         }
 
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-        SDL_RenderClear(renderer);
-        snake();
-        food_func();
-        SDL_RenderPresent(renderer);
-        SDL_Delay(16); //60 fps
+        draw();
+        SDL_Delay(16); // ~60 fps
     }
 
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
     SDL_Quit();
-
     return 0;
 }
